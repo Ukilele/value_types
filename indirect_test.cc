@@ -118,17 +118,42 @@ TEST(IndirectTest, AllocatorExtendedInitializerListConstructor) {
   EXPECT_EQ(i.get_allocator(), a);
 }
 
-#ifdef XYZ_HAS_TEMPLATE_ARGUMENT_DEDUCTION
-TEST(IndirectTest, TemplateArgumentDeduction) {
+#ifdef XYZ_HAS_CLASS_TEMPLATE_ARGUMENT_DEDUCTION
+TEST(IndirectTest, ClassTemplateArgumentDeduction) {
   xyz::indirect a(42);
   EXPECT_EQ(*a, 42);
 }
 
-TEST(IndirectTest, TemplateArgumentDeductionWithAllocator) {
+TEST(IndirectTest, ClassTemplateArgumentDeductionWithAllocator) {
   xyz::indirect a(std::allocator_arg, std::allocator<int>{}, 42);
   EXPECT_EQ(*a, 42);
 }
-#endif  // XYZ_HAS_TEMPLATE_ARGUMENT_DEDUCTION
+
+template <class T>
+struct AllocatorWithConstructor : public std::allocator<T> {
+  AllocatorWithConstructor(std::nullptr_t) {
+  }  // We need any non-default constructor
+};
+
+TEST(IndirectTest, ClassTemplateArgumentDeductionDoNotDeduceAllocator) {
+  using TargetType = xyz::indirect<int, AllocatorWithConstructor<int>>;
+  TargetType input(std::allocator_arg, AllocatorWithConstructor<int>(nullptr),
+                   42);
+  xyz::indirect copyDestination(std::allocator_arg,
+                                nullptr, input);
+  xyz::indirect moveDestination(std::allocator_arg,
+                                nullptr,
+                                std::move(input));
+  EXPECT_EQ(*copyDestination, 42);
+  EXPECT_EQ(*moveDestination, 42);
+  EXPECT_TRUE(input.valueless_after_move());
+
+  using copyType = decltype(copyDestination);
+  static_assert(std::is_same<copyType, TargetType>::value);
+  using moveType = decltype(moveDestination);
+  static_assert(std::is_same<copyType, TargetType>::value);
+}
+#endif  // XYZ_HAS_CLASS_TEMPLATE_ARGUMENT_DEDUCTION
 
 template <typename Allocator = std::allocator<void>>
 struct AllocatorAwareType {

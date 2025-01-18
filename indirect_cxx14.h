@@ -81,6 +81,18 @@ class empty_base_optimization<T, true> : private T {
 }  // namespace detail
 #endif  // XYZ_EMPTY_BASE_DEFINED
 
+#ifndef XYZ_TYPE_IDENTITY_DEFINED
+#define XYZ_TYPE_IDENTITY_DEFINED
+namespace detail {
+template<class T>
+struct type_identity {
+    using type = T;
+};
+template<class T>
+using type_identity_t = typename type_identity<T>::type;
+}  // namespace detail
+#endif  // XYZ_TYPE_IDENTITY_DEFINED
+
 template <class T, class A>
 class indirect;
 
@@ -183,7 +195,8 @@ class indirect : private detail::empty_base_optimization<A> {
       : indirect(std::allocator_arg, A(), xyz::in_place_t{}, ilist,
                  std::forward<Us>(us)...) {}
 
-  indirect(std::allocator_arg_t, const A& alloc, const indirect& other)
+  indirect(std::allocator_arg_t, const detail::type_identity_t<A>& alloc,
+           const indirect& other)
       : alloc_base(alloc) {
     static_assert(std::is_copy_constructible<T>::value,
                   "T must be copy constructible");
@@ -200,7 +213,7 @@ class indirect : private detail::empty_base_optimization<A> {
                      other.alloc_base::get()),
                  other) {}
 
-  indirect(std::allocator_arg_t, const A& alloc,
+  indirect(std::allocator_arg_t, const detail::type_identity_t<A>& alloc,
            indirect&& other) noexcept(allocator_traits::is_always_equal::value)
       : alloc_base(alloc), p_(nullptr) {
     if (allocator_traits::is_always_equal::value) {
@@ -558,14 +571,16 @@ class indirect : private detail::empty_base_optimization<A> {
   }
 };
 
-#ifdef XYZ_HAS_TEMPLATE_ARGUMENT_DEDUCTION
+#ifdef XYZ_HAS_CLASS_TEMPLATE_ARGUMENT_DEDUCTION
 template <typename Value>
 indirect(Value) -> indirect<Value>;
 
-template <typename Alloc, typename Value>
-indirect(std::allocator_arg_t, Alloc, Value) -> indirect<
-    Value, typename std::allocator_traits<Alloc>::template rebind_alloc<Value>>;
-#endif  // XYZ_HAS_TEMPLATE_ARGUMENT_DEDUCTION
+template <typename Alloc, typename Value,
+          typename = std::enable_if_t<!is_indirect<Value>::value>>
+indirect(std::allocator_arg_t, Alloc, Value)
+    -> indirect<Value, typename std::allocator_traits<
+                           Alloc>::template rebind_alloc<Value>>;
+#endif  // XYZ_HAS_CLASS_TEMPLATE_ARGUMENT_DEDUCTION
 
 }  // namespace xyz
 
