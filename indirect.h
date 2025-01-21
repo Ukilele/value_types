@@ -30,6 +30,35 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include <utility>
 
 namespace xyz {
+namespace detail {
+
+// See: https://eel.is/c++draft/concept.booleantestable
+template <class T>
+concept boolean_testable = std::convertible_to<T, bool> && requires(T&& t) {
+  { !std::forward<T>(t) } -> std::convertible_to<bool>;
+};
+
+// See: https://eel.is/c++draft/expos.only.entity
+template <class T, class U>
+constexpr auto synth_three_way(const T& t, const U& u)
+  requires requires {
+    { t < u } -> boolean_testable;
+    { u < t } -> boolean_testable;
+  }
+{
+  if constexpr (std::three_way_comparable_with<T, U>) {
+    return t <=> u;
+  } else {
+    if (t < u) return std::weak_ordering::less;
+    if (u < t) return std::weak_ordering::greater;
+    return std::weak_ordering::equivalent;
+  }
+}
+
+template <class T, class U = T>
+using synth_three_way_result =
+    decltype(synth_three_way(std::declval<T&>(), std::declval<U&>()));
+}  // namespace detail
 
 #ifndef XYZ_UNREACHABLE_DEFINED
 #define XYZ_UNREACHABLE_DEFINED
@@ -362,14 +391,13 @@ class indirect {
   }
 
   template <class U, class AA>
-  [[nodiscard]] friend constexpr auto operator<=>(
-      const indirect<T, A>& lhs,
-      const indirect<U, AA>& rhs) noexcept(noexcept(*lhs <=> *rhs))
-      -> std::compare_three_way_result_t<T, U> {
+  [[nodiscard]] friend constexpr auto operator<=>(const indirect<T, A>& lhs,
+                                                  const indirect<U, AA>& rhs)
+      -> detail::synth_three_way_result<T, U> {
     if (lhs.valueless_after_move() || rhs.valueless_after_move()) {
       return !lhs.valueless_after_move() <=> !rhs.valueless_after_move();
     }
-    return *lhs <=> *rhs;
+    return detail::synth_three_way(*lhs, *rhs);
   }
 
   template <class U>
@@ -383,16 +411,20 @@ class indirect {
     return *lhs == rhs;
   }
 
-  template <class U>
-  [[nodiscard]] friend constexpr auto operator<=>(
-      const indirect<T, A>& lhs, const U& rhs) noexcept(noexcept(*lhs <=> rhs))
-      -> std::compare_three_way_result_t<T, U>
-    requires(!is_indirect_v<U>)
-  {
+  // Instead of `requires(!is_indirect_v<U>)` we intentionally use
+  // `std::enable_if_t`. Otherwise it does not compile in MSVC and Clang
+  // Potentially related issues:
+  //  MSVC:
+  //  https://developercommunity.visualstudio.com/t/error-C7608:-atomic-constraint-should-be/1667000
+  // Clang: https://github.com/llvm/llvm-project/issues/62096
+  template <class U, class = std::enable_if_t<!is_indirect_v<U>>>
+  [[nodiscard]] friend constexpr auto operator<=>(const indirect<T, A>& lhs,
+                                                  const U& rhs)
+      -> detail::synth_three_way_result<T, U> {
     if (lhs.valueless_after_move()) {
       return false <=> true;
     }
-    return *lhs <=> rhs;
+    return detail::synth_three_way(*lhs, rhs);
   }
 
  private:
